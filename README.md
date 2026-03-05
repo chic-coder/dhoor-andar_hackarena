@@ -58,7 +58,7 @@ https://docs.python.org/3/library/os.html
 https://docs.python.org/3/library/collections.html
 - math<br>
 https://docs.python.org/3/library/math.html
-- mathplotlib<br>
+- matplotlib<br>
 https://matplotlib.org/stable/index.html
 
 ---
