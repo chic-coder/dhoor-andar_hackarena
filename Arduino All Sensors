@@ -5,11 +5,13 @@
  * Serial: 115200 baud
  * 
  * Health Thresholds based on standard guidelines:
- * - CO2: Safe <800 ppm, Symptoms >1000 ppm
- * - VOC: Safe >150 IAQ , Symptoms <150 IAQ
+ * - CO2: Safe <800 ppm, Symptoms >1000 ppm, BUZZER >2000 ppm
+ * - VOC: Safe >150 iaq , Symptoms <150 iaq, BUZZER >200 iaq
  * - PM1: Safe <10 μg/m³, Symptoms >10 μg/m³
  * - PM2.5: Safe <15 μg/m³, Symptoms >15 μg/m³
  * - PM10: Safe <45 μg/m³, Symptoms >45 μg/m³
+ * 
+ * Buzzer: Pin 23 - 5s ON, 5s OFF pattern when VOC≥200 or CO2≥2000
  */
 
 #include <Wire.h>
@@ -29,11 +31,19 @@
 #define SDA_PIN 21
 #define SCL_PIN 22
 
+// Buzzer Pin
+#define BUZZER_PIN 23
+
 // Health Thresholds
-#define CO2_SAFE_MAX 800     //ppm
+#define CO2_SAFE_MAX 800      //ppm
 #define CO2_SYMPTOMS_START 1000
-#define CO2_SEVERE_START 2000
+#define CO2_SEVERE_START 2000    // BUZZER TRIGGER
 #define CO2_CRITICAL 5000
+
+#define VOC_SAFE_MAX 100     
+#define VOC_SYMPTOMS_START 150
+#define VOC_SEVERE_START 200     // BUZZER TRIGGER
+#define VOC_CRITICAL 300
 
 #define PM1_SAFE_MAX 10      // μg/m³
 #define PM1_SYMPTOMS_START 10
@@ -65,12 +75,27 @@ struct SensorData
   float pm2_5;
   float pm10;
   int co2;
-  float voc;  // Gas resistance in Ohms
-} data;
+  float voc;      // Gas resistance in Ohms
+  float iaq;      // IAQ index (0-500 scale)
+} 
+data;
+
+// IAQ calculation globals
+float hum_reference = 40.0;   // Optimal humidity %
+float gas_reference = 250000; // Will be updated on first reading
+float hum_score = 0;
+float gas_score = 0;
 
 // Timing
 unsigned long lastOutputTime = 0;
 const unsigned long OUTPUT_INTERVAL = 2000;  // Output every 2 seconds
+
+// Buzzer control
+unsigned long buzzerStartTime = 0;
+bool buzzerActive = false;
+bool buzzerOn = false;
+const unsigned long BUZZER_ON_TIME = 5000;   // 5 seconds ON
+const unsigned long BUZZER_OFF_TIME = 5000;  // 5 seconds OFF
 
 // ==========================================
 // Parse ZH07 Data (32-byte packet format)
@@ -114,14 +139,118 @@ void readCO2()
 }
 
 // ==========================================
-// Read BME680 VOC (Gas Resistance)
+// Read BME680 VOC (Gas Resistance) + Compute IAQ
 // ==========================================
 void readVOC() 
 {
   if (bme.performReading()) 
   {
     data.voc = bme.gas_resistance;  // In Ohms
+    gas_reference = data.voc;       // Update gas reference for IAQ calc
+
+    // --- Humidity contribution (25% of IAQ score) ---
+    float current_humidity = bme.readHumidity();
+    if (current_humidity >= 38 && current_humidity <= 42)
+      hum_score = 0.25 * 100; // Optimal humidity band
+    else
+    {
+      if (current_humidity < 38)
+        hum_score = 0.25 / hum_reference * current_humidity * 100;
+      else
+        hum_score = ((-0.25 / (100 - hum_reference) * current_humidity) + 0.416666) * 100;
+    }
+
+    // --- Gas/VOC contribution (75% of IAQ score) ---
+    float gas_lower_limit = 5000;    // Bad air quality limit (Ohms)
+    float gas_upper_limit = 50000;   // Good air quality limit (Ohms)
+    if (gas_reference > gas_upper_limit) gas_reference = gas_upper_limit;
+    if (gas_reference < gas_lower_limit) gas_reference = gas_lower_limit;
+    gas_score = (0.75 / (gas_upper_limit - gas_lower_limit) * gas_reference
+                 - (gas_lower_limit * (0.75 / (gas_upper_limit - gas_lower_limit)))) * 100;
+
+    // --- Combine into air_quality_score (0-100, where 100 = good) ---
+    float air_quality_score = hum_score + gas_score;
+    if (air_quality_score > 100) air_quality_score = 100;
+    if (air_quality_score < 0)   air_quality_score = 0;
+
+    // --- Map to IAQ 0-500 scale (inverted: 100% quality = IAQ 0, 0% = IAQ 500) ---
+    data.iaq = (1.0 - (air_quality_score / 100.0)) * 500.0;
+    if (data.iaq > 500) data.iaq = 500;
+    if (data.iaq < 0)   data.iaq = 0;
   }
+}
+
+// ==========================================
+// Check if buzzer should be active
+// ==========================================
+bool shouldBuzzerActivate() 
+{
+  return (data.co2 >= CO2_SEVERE_START || data.iaq >= VOC_SEVERE_START);
+}
+
+// ==========================================
+// Control Buzzer (5s ON, 5s OFF pattern)
+// ==========================================
+void controlBuzzer() 
+{
+  bool shouldBeActive = shouldBuzzerActivate();
+  
+  if (shouldBeActive) 
+  {
+    if (!buzzerActive) 
+    {
+      // Start buzzer pattern
+      buzzerActive = true;
+      buzzerOn = true;
+      buzzerStartTime = millis();
+      digitalWrite(BUZZER_PIN, HIGH);
+      Serial.println("⚠⚠⚠ BUZZER ACTIVATED - SEVERE AIR QUALITY!");
+    } 
+    else 
+    {
+      // Manage 5s ON, 5s OFF pattern
+      unsigned long elapsed = millis() - buzzerStartTime;
+      
+      if (buzzerOn && elapsed >= BUZZER_ON_TIME) 
+      {
+        // Turn OFF after 5 seconds
+        buzzerOn = false;
+        buzzerStartTime = millis();
+        digitalWrite(BUZZER_PIN, LOW);
+      } 
+      else if (!buzzerOn && elapsed >= BUZZER_OFF_TIME) 
+      {
+        // Turn ON after 5 seconds OFF
+        buzzerOn = true;
+        buzzerStartTime = millis();
+        digitalWrite(BUZZER_PIN, HIGH);
+      }
+    }
+  } 
+  else 
+  {
+    // Air is acceptable - turn off buzzer
+    if (buzzerActive) 
+    {
+      buzzerActive = false;
+      buzzerOn = false;
+      digitalWrite(BUZZER_PIN, LOW);
+      Serial.println("✓ Air quality improved - Buzzer deactivated");
+    }
+  }
+}
+
+// ==========================================
+// Get IAQ Status Label (0-500 scale)
+// ==========================================
+String getIAQStatus(float iaq)
+{
+  if (iaq <= 50)  return "Excellent";
+  if (iaq <= 100) return "Good";
+  if (iaq <= 150) return "Lightly Polluted";
+  if (iaq <= 200) return "Moderately Polluted";
+  if (iaq <= 300) return "Heavily Polluted";
+  return "Severely Polluted";
 }
 
 // ==========================================
@@ -166,15 +295,27 @@ String getPM10Status(float pm10)
 void outputData() 
 {
   Serial.print("pm1:");
-  Serial.print(data.pm1_0, 3);  // 3 decimal places
-  Serial.print(",pm2.5:");
-  Serial.print(data.pm2_5, 3);  // 3 decimal places
+  Serial.print(data.pm1_0, 3);
+  Serial.print(",pm25:");
+  Serial.print(data.pm2_5, 3);
   Serial.print(",pm10:");
-  Serial.print(data.pm10, 3);   // 3 decimal places
+  Serial.print(data.pm10, 3);
   Serial.print(",co2:");
   Serial.print(data.co2);
   Serial.print(",voc:");
-  Serial.println(data.voc, 0);  // No decimal for VOC
+  Serial.print(data.iaq, 1);   // IAQ value (0-500)
+  Serial.print(" (");
+  Serial.print(getIAQStatus(data.iaq));
+  Serial.print(")");
+  
+  // Add buzzer status indicator
+  if (buzzerActive) 
+  {
+    Serial.print(" [BUZZER: ");
+    Serial.print(buzzerOn ? "ON" : "OFF");
+    Serial.print("]");
+  }
+  Serial.println();
 }
 
 // ==========================================
@@ -191,7 +332,11 @@ void outputHealthReport()
   Serial.print(data.co2);
   Serial.print(" ppm - ");
   Serial.println(getCO2Status(data.co2));
-  if (data.co2 >= CO2_SYMPTOMS_START) 
+  if (data.co2 >= CO2_SEVERE_START) 
+  {
+    Serial.println("  ⚠⚠⚠ SEVERE! BUZZER ACTIVATED!");
+  }
+  else if (data.co2 >= CO2_SYMPTOMS_START) 
   {
     Serial.println("  ⚠ Symptoms possible - ventilate area");
   }
@@ -226,15 +371,33 @@ void outputHealthReport()
     Serial.println("  ⚠ Respiratory irritation possible");
   }
   
-  // VOC
-  Serial.print("VOC: ");
+  // VOC / IAQ
+  Serial.print("VOC Gas Resistance: ");
   Serial.print(data.voc, 0);
-  Serial.print(" IAQ - ");
+  Serial.print(" Ω (");
   Serial.print(data.voc / 1000.0, 1);
-  Serial.println(" IAQ - ");
-  if (data.voc < 50000) 
+  Serial.println(" kΩ)");
+  Serial.print("IAQ Index: ");
+  Serial.print(data.iaq, 1);
+  Serial.print(" / 500  →  ");
+  Serial.println(getIAQStatus(data.iaq));
+  if (data.iaq >= VOC_SEVERE_START)
+  {
+    Serial.println("  ⚠⚠⚠ SEVERE! BUZZER ACTIVATED!");
+  }
+  else if (data.iaq >= VOC_SYMPTOMS_START)
   {
     Serial.println("  ⚠ Poor air quality - VOCs detected");
+  }
+  
+  // Overall status
+  if (buzzerActive) 
+  {
+    Serial.println("\n⚠⚠⚠ SEVERE AIR QUALITY - BUZZER ACTIVE");
+    Serial.print("Trigger: ");
+    if (data.co2 >= CO2_SEVERE_START) Serial.print("CO2≥2000ppm ");
+    if (data.iaq >= VOC_SEVERE_START) Serial.print("VOC≥200 ");
+    Serial.println();
   }
   
   Serial.println("========================================\n");
@@ -249,7 +412,11 @@ void setup()
   Serial.begin(115200);
   delay(1000);
   
-  Serial.println("ZH07 Dust Sensor Test");
+  // Initialize Buzzer
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+  
+  Serial.println("Multi-Sensor Air Quality Monitor");
   
   // Initialize ZH07 (PM sensor) - 32-byte packet format
   zhSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
@@ -283,17 +450,20 @@ void setup()
   data.pm10 = 0;
   data.co2 = 0;
   data.voc = 0;
+  data.iaq = 0;
   
   // Display health thresholds
   Serial.println("\n╔════════════════════════════════════════╗");
   Serial.println("  ║    Multi-Sensor Air Quality Monitor    ║");
   Serial.println("  ╚════════════════════════════════════════╝");
   Serial.println("\nHealth Thresholds:");
-  Serial.println("  CO2:   Safe <800 ppm, Symptoms >1000 ppm");
-  Serial.println("  PM1:   Safe <10 μg/m³, Symptoms >10 μg/m³");
-  Serial.println("  PM2.5: Safe <15 μg/m³, Symptoms >15 μg/m³");
-  Serial.println("  PM10:  Safe <45 μg/m³, Symptoms >45 μg/m³");
-  Serial.println("\nOutput Format: pm1:X.XXX,pm25:X.XXX,pm10:X.XXX,co2:XXX,voc:XXXXX\n");
+  Serial.println("  CO2:     Safe <800 ppm, Symptoms >1000 ppm, BUZZER >2000 ppm");
+  Serial.println("  VOC IAQ: Safe <100, Symptoms >150, BUZZER >200 (0-500 scale)");
+  Serial.println("  PM1:     Safe <10 μg/m³, Symptoms >10 μg/m³");
+  Serial.println("  PM2.5:   Safe <15 μg/m³, Symptoms >15 μg/m³");
+  Serial.println("  PM10:    Safe <45 μg/m³, Symptoms >45 μg/m³");
+  Serial.println("\n⚠ BUZZER (Pin 23): 5s ON / 5s OFF when CO2≥2000 or VOC≥200");
+  Serial.println("\nOutput Format: pm1:X.XXX,pm2.5:X.XXX,pm10:X.XXX,co2:XXX,voc_iaq:XXX.X (Status)\n");
   
   delay(2000);  // Sensor warm-up
 }
@@ -307,6 +477,9 @@ void loop()
   
   // Continuously parse ZH07 data (32-byte packet)
   parseZH07Packet();
+  
+  // Control buzzer based on air quality
+  controlBuzzer();
   
   // Output data at interval
   if (currentTime - lastOutputTime >= OUTPUT_INTERVAL) 
