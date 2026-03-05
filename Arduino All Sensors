@@ -204,7 +204,7 @@ void controlBuzzer()
       buzzerOn = true;
       buzzerStartTime = millis();
       digitalWrite(BUZZER_PIN, HIGH);
-      Serial.println("⚠⚠⚠ BUZZER ACTIVATED - SEVERE AIR QUALITY!");
+      // Serial.println("⚠⚠⚠ BUZZER ACTIVATED - SEVERE AIR QUALITY!");
     } 
     else 
     {
@@ -235,58 +235,9 @@ void controlBuzzer()
       buzzerActive = false;
       buzzerOn = false;
       digitalWrite(BUZZER_PIN, LOW);
-      Serial.println("✓ Air quality improved - Buzzer deactivated");
+      // Serial.println("✓ Air quality improved - Buzzer deactivated");
     }
   }
-}
-
-// ==========================================
-// Get IAQ Status Label (0-500 scale)
-// ==========================================
-String getIAQStatus(float iaq)
-{
-  if (iaq <= 50)  return "Excellent";
-  if (iaq <= 100) return "Good";
-  if (iaq <= 150) return "Lightly Polluted";
-  if (iaq <= 200) return "Moderately Polluted";
-  if (iaq <= 300) return "Heavily Polluted";
-  return "Severely Polluted";
-}
-
-// ==========================================
-// Get Health Status
-// ==========================================
-String getCO2Status(int co2) 
-{
-  if (co2 < CO2_SAFE_MAX) return "Safe";
-  if (co2 < CO2_SYMPTOMS_START) return "Acceptable";
-  if (co2 < CO2_SEVERE_START) return "Drowsiness risk";
-  if (co2 < CO2_CRITICAL) return "Headache, dizziness";
-  return "SEVERE - breathing difficulty";
-}
-
-String getPM1Status(float pm1) 
-{
-  if (pm1 < PM1_SAFE_MAX) return "Safe";
-  if (pm1 < PM1_MODERATE) return "Mild throat irritation";
-  if (pm1 < PM1_UNHEALTHY) return "Coughing, breathing discomfort";
-  return "Lung irritation, asthma risk";
-}
-
-String getPM25Status(float pm25) 
-{
-  if (pm25 < PM25_SAFE_MAX) return "Safe";
-  if (pm25 < PM25_MODERATE) return "Eye irritation, coughing";
-  if (pm25 < PM25_UNHEALTHY) return "Breathing difficulty";
-  return "Asthma attacks, lung inflammation";
-}
-
-String getPM10Status(float pm10) 
-{
-  if (pm10 < PM10_SAFE_MAX) return "Safe";
-  if (pm10 < PM10_MODERATE) return "Sneezing, eye irritation";
-  if (pm10 < PM10_UNHEALTHY) return "Coughing, throat irritation";
-  return "Respiratory problems";
 }
 
 // ==========================================
@@ -294,113 +245,18 @@ String getPM10Status(float pm10)
 // ==========================================
 void outputData() 
 {
+  Serial.print(",co2:");
+  Serial.print(data.co2);
+  Serial.print(",voc:");
+  Serial.print(data.iaq, 1);   // IAQ value (0-500)
   Serial.print("pm1:");
   Serial.print(data.pm1_0, 3);
   Serial.print(",pm25:");
   Serial.print(data.pm2_5, 3);
   Serial.print(",pm10:");
   Serial.print(data.pm10, 3);
-  Serial.print(",co2:");
-  Serial.print(data.co2);
-  Serial.print(",voc:");
-  Serial.print(data.iaq, 1);   // IAQ value (0-500)
-  Serial.print(" (");
-  Serial.print(getIAQStatus(data.iaq));
-  Serial.print(")");
-  
-  // Add buzzer status indicator
-  if (buzzerActive) 
-  {
-    Serial.print(" [BUZZER: ");
-    Serial.print(buzzerOn ? "ON" : "OFF");
-    Serial.print("]");
-  }
   Serial.println();
-}
-
-// ==========================================
-// Output Detailed Health Report (Optional)
-// ==========================================
-void outputHealthReport() 
-{
-  Serial.println("\n========================================");
-  Serial.println("Air Quality Health Report");
-  Serial.println("========================================");
   
-  // CO2
-  Serial.print("CO2: ");
-  Serial.print(data.co2);
-  Serial.print(" ppm - ");
-  Serial.println(getCO2Status(data.co2));
-  if (data.co2 >= CO2_SEVERE_START) 
-  {
-    Serial.println("  ⚠⚠⚠ SEVERE! BUZZER ACTIVATED!");
-  }
-  else if (data.co2 >= CO2_SYMPTOMS_START) 
-  {
-    Serial.println("  ⚠ Symptoms possible - ventilate area");
-  }
-  
-  // PM1.0
-  Serial.print("PM1.0: ");
-  Serial.print(data.pm1_0, 3);
-  Serial.print(" μg/m³ - ");
-  Serial.println(getPM1Status(data.pm1_0));
-  if (data.pm1_0 >= PM1_SYMPTOMS_START) 
-  {
-    Serial.println("  ⚠ Health effects possible");
-  }
-  
-  // PM2.5
-  Serial.print("PM2.5: ");
-  Serial.print(data.pm2_5, 3);
-  Serial.print(" μg/m³ - ");
-  Serial.println(getPM25Status(data.pm2_5));
-  if (data.pm2_5 >= PM25_SYMPTOMS_START) 
-  {
-    Serial.println("  ⚠ Sensitive groups at risk");
-  }
-  
-  // PM10
-  Serial.print("PM10: ");
-  Serial.print(data.pm10, 3);
-  Serial.print(" μg/m³ - ");
-  Serial.println(getPM10Status(data.pm10));
-  if (data.pm10 >= PM10_SYMPTOMS_START) 
-  {
-    Serial.println("  ⚠ Respiratory irritation possible");
-  }
-  
-  // VOC / IAQ
-  Serial.print("VOC Gas Resistance: ");
-  Serial.print(data.voc, 0);
-  Serial.print(" Ω (");
-  Serial.print(data.voc / 1000.0, 1);
-  Serial.println(" kΩ)");
-  Serial.print("IAQ Index: ");
-  Serial.print(data.iaq, 1);
-  Serial.print(" / 500  →  ");
-  Serial.println(getIAQStatus(data.iaq));
-  if (data.iaq >= VOC_SEVERE_START)
-  {
-    Serial.println("  ⚠⚠⚠ SEVERE! BUZZER ACTIVATED!");
-  }
-  else if (data.iaq >= VOC_SYMPTOMS_START)
-  {
-    Serial.println("  ⚠ Poor air quality - VOCs detected");
-  }
-  
-  // Overall status
-  if (buzzerActive) 
-  {
-    Serial.println("\n⚠⚠⚠ SEVERE AIR QUALITY - BUZZER ACTIVE");
-    Serial.print("Trigger: ");
-    if (data.co2 >= CO2_SEVERE_START) Serial.print("CO2≥2000ppm ");
-    if (data.iaq >= VOC_SEVERE_START) Serial.print("VOC≥200 ");
-    Serial.println();
-  }
-  
-  Serial.println("========================================\n");
 }
 
 // ==========================================
@@ -416,7 +272,7 @@ void setup()
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
   
-  Serial.println("Multi-Sensor Air Quality Monitor");
+  // Serial.println("Multi-Sensor Air Quality Monitor");
   
   // Initialize ZH07 (PM sensor) - 32-byte packet format
   zhSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
@@ -451,19 +307,6 @@ void setup()
   data.co2 = 0;
   data.voc = 0;
   data.iaq = 0;
-  
-  // Display health thresholds
-  Serial.println("\n╔════════════════════════════════════════╗");
-  Serial.println("  ║    Multi-Sensor Air Quality Monitor    ║");
-  Serial.println("  ╚════════════════════════════════════════╝");
-  Serial.println("\nHealth Thresholds:");
-  Serial.println("  CO2:     Safe <800 ppm, Symptoms >1000 ppm, BUZZER >2000 ppm");
-  Serial.println("  VOC IAQ: Safe <100, Symptoms >150, BUZZER >200 (0-500 scale)");
-  Serial.println("  PM1:     Safe <10 μg/m³, Symptoms >10 μg/m³");
-  Serial.println("  PM2.5:   Safe <15 μg/m³, Symptoms >15 μg/m³");
-  Serial.println("  PM10:    Safe <45 μg/m³, Symptoms >45 μg/m³");
-  Serial.println("\n⚠ BUZZER (Pin 23): 5s ON / 5s OFF when CO2≥2000 or VOC≥200");
-  Serial.println("\nOutput Format: pm1:X.XXX,pm2.5:X.XXX,pm10:X.XXX,co2:XXX,voc_iaq:XXX.X (Status)\n");
   
   delay(2000);  // Sensor warm-up
 }
