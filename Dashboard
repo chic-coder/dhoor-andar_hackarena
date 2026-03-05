@@ -10,15 +10,12 @@ import threading
 import time
 from datetime import datetime
 import json
-import os
 from collections import deque
-import math
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-import numpy as np
 
 class AirQualityDashboard:
     def __init__(self, root):
@@ -34,8 +31,7 @@ class AirQualityDashboard:
         self.should_stop = False
         
         # Data storage
-        self.data_history = 
-        {
+        self.data_history = {
             'pm1': deque(maxlen=100),
             'pm25': deque(maxlen=100),
             'pm10': deque(maxlen=100),
@@ -45,8 +41,7 @@ class AirQualityDashboard:
         }
         
         # Current values
-        self.current_values = 
-        {
+        self.current_values = {
             'pm1': 0,
             'pm25': 0,
             'pm10': 0,
@@ -55,18 +50,14 @@ class AirQualityDashboard:
         }
         
         # Alert thresholds
-        # Note: VOC is inversely proportional - LOWER resistance = WORSE air quality
-        self.thresholds = 
-        {
+        # Note: VOC is directly proportional - HIGHER value = WORSE air quality
+        self.thresholds = {
             'pm1': {'good': 10, 'moderate': 25, 'unhealthy': 50},
             'pm25': {'good': 15, 'moderate': 35, 'unhealthy': 75},
             'pm10': {'good': 45, 'moderate': 100, 'unhealthy': 250},
             'co2': {'good': 800, 'moderate': 2000, 'unhealthy': 5000},
             'voc': {'good': 150, 'moderate': 200, 'unhealthy': 250}  # Inverse: lower = worse
         }
-        
-        # Track which parameters are inverse (lower is worse)
-        #self.inverse_params = ['voc']
         
         # Alert system
         self.alert_active = False
@@ -345,11 +336,11 @@ class AirQualityDashboard:
             grid_frame.columnconfigure(i, weight=1)
         
         sensors = [
+            {'name': 'CO₂', 'key': 'co2', 'unit': 'ppm', 'color': '#66bb6a'},
+            {'name': 'VOC', 'key': 'voc', 'unit': 'Index', 'color': '#42a5f5'},
             {'name': 'PM1', 'key': 'pm1', 'unit': 'µg/m³', 'color': "#ff7c6b"},
             {'name': 'PM2.5', 'key': 'pm25', 'unit': 'µg/m³', 'color': '#ff6b9d'},
-            {'name': 'PM10', 'key': 'pm10', 'unit': 'µg/m³', 'color': '#ffa726'},
-            {'name': 'CO₂', 'key': 'co2', 'unit': 'ppm', 'color': '#66bb6a'},
-            {'name': 'VOC', 'key': 'voc', 'unit': 'Ω', 'color': '#42a5f5'}
+            {'name': 'PM10', 'key': 'pm10', 'unit': 'µg/m³', 'color': '#ffa726'}
         ]
         
         self.sensor_widgets = {}
@@ -415,8 +406,7 @@ class AirQualityDashboard:
         status_label.pack(pady=(8, 0))
         
         # Store widgets (without trend canvas)
-        self.sensor_widgets[key] = 
-        {
+        self.sensor_widgets[key] = {
             'value': value_label,
             'status': status_label,
             'color': color
@@ -445,10 +435,10 @@ class AirQualityDashboard:
         self.fig.subplots_adjust(left=0.06, right=0.98, top=0.88, bottom=0.15, wspace=0.25)
         
         # Create 1x3 grid of subplots
-        self.ax_pm_combined = self.fig.add_subplot(1, 3, 1)
-        self.ax_co2 = self.fig.add_subplot(1, 3, 2)
-        self.ax_voc = self.fig.add_subplot(1, 3, 3)
-        
+        self.ax_co2 = self.fig.add_subplot(1, 3, 1)
+        self.ax_voc = self.fig.add_subplot(1, 3, 2)
+        self.ax_pm_combined = self.fig.add_subplot(1, 3, 3)
+
         # Style each subplot with smaller fonts
         for ax, title, color in [
             (self.ax_pm_combined, 'Particulate Matter (µg/m³)', '#ff6b9d'),
@@ -518,19 +508,19 @@ class AirQualityDashboard:
         self.ax_co2.grid(True, alpha=0.2, linestyle='--', linewidth=0.5)
         self.ax_co2.tick_params(colors='#8892b0', labelsize=7)
         
-        # Update VOC (inverse - lower is worse)
+        # Update VOC (direct - higher is worse)
         self.ax_voc.clear()
         voc_data = list(self.data_history['voc'])
         self.ax_voc.plot(time_values, voc_data, color='#42a5f5', linewidth=2, label='VOC')
         self.ax_voc.fill_between(time_values, voc_data, alpha=0.2, color='#42a5f5')
         
-        self.ax_voc.axhline(y=self.thresholds['voc']['good'], color='#66bb6a', linestyle='--', alpha=0.5, linewidth=1, label='Good (>100kΩ)')
+        self.ax_voc.axhline(y=self.thresholds['voc']['good'], color='#66bb6a', linestyle='--', alpha=0.5, linewidth=1, label='Good (<150)')
         self.ax_voc.axhline(y=self.thresholds['voc']['moderate'], color='#ffa726', linestyle='--', alpha=0.5, linewidth=1, label='Moderate')
-        self.ax_voc.axhline(y=self.thresholds['voc']['unhealthy'], color='#ff3366', linestyle='--', alpha=0.5, linewidth=1, label='Unhealthy (<1kΩ)')
+        self.ax_voc.axhline(y=self.thresholds['voc']['unhealthy'], color='#ff3366', linestyle='--', alpha=0.5, linewidth=1, label='Unhealthy (>350)')
         
-        self.ax_voc.set_title('VOC Resistance (Ω) ⚠️ Lower = Worse', color='#42a5f5', fontweight='bold', fontsize=10)
+        self.ax_voc.set_title('VOC Index ⚠️ Higher = Worse', color='#42a5f5', fontweight='bold', fontsize=10)
         self.ax_voc.set_xlabel('Time (min)', color='#8892b0', fontsize=8)
-        self.ax_voc.set_ylabel('Ohms (Ω)', color='#8892b0', fontsize=8)
+        self.ax_voc.set_ylabel('Index', color='#8892b0', fontsize=8)
         self.ax_voc.legend(loc='upper right', fontsize=7, framealpha=0.3)
         self.ax_voc.set_facecolor('#1a1f3a')
         self.ax_voc.grid(True, alpha=0.2, linestyle='--', linewidth=0.5)
@@ -739,13 +729,13 @@ class AirQualityDashboard:
         """
         Parse incoming serial data
         Expected format: JSON string like:
-        {"pm25": 12.5, "pm10": 23.4, "co2": 450, "voc": 120}
+        {"co2": 450, "voc": 120, "pm1": 8.3, "pm25": 12.5, "pm10": 23.4}
         """
         try:
             data = json.loads(data_string)
             
             # Update current values
-            for key in ['pm25', 'pm10', 'co2', 'voc']:
+            for key in ['co2', 'voc', 'pm1', 'pm25', 'pm10']:
                 if key in data:
                     value = float(data[key])
                     self.current_values[key] = value
@@ -806,27 +796,15 @@ class AirQualityDashboard:
         """Get air quality status based on thresholds"""
         thresholds = self.thresholds[sensor]
         
-        # Check if this is an inverse parameter (lower is worse)
-        if sensor in self.inverse_params:
-            # For VOC: higher resistance = better air quality
-            if value >= thresholds['good']:
-                return {'label': 'GOOD', 'color': '#66bb6a'}
-            elif value >= thresholds['moderate']:
-                return {'label': 'MODERATE', 'color': '#ffa726'}
-            elif value >= thresholds['unhealthy']:
-                return {'label': 'UNHEALTHY', 'color': '#ff6b9d'}
-            else:
-                return {'label': 'HAZARDOUS', 'color': '#ff3366'}
+        # All parameters: higher value = worse air quality
+        if value <= thresholds['good']:
+            return {'label': 'GOOD', 'color': '#66bb6a'}
+        elif value <= thresholds['moderate']:
+            return {'label': 'MODERATE', 'color': '#ffa726'}
+        elif value <= thresholds['unhealthy']:
+            return {'label': 'UNHEALTHY', 'color': '#ff6b9d'}
         else:
-            # For normal parameters: lower = better
-            if value <= thresholds['good']:
-                return {'label': 'GOOD', 'color': '#66bb6a'}
-            elif value <= thresholds['moderate']:
-                return {'label': 'MODERATE', 'color': '#ffa726'}
-            elif value <= thresholds['unhealthy']:
-                return {'label': 'UNHEALTHY', 'color': '#ff6b9d'}
-            else:
-                return {'label': 'HAZARDOUS', 'color': '#ff3366'}
+            return {'label': 'HAZARDOUS', 'color': '#ff3366'}
             
     def update_statistics(self):
         """Update statistics panel"""
@@ -834,7 +812,7 @@ class AirQualityDashboard:
         
         stats = "=== AIR QUALITY STATS ===\n\n"
         
-        for key in ['pm25', 'pm10', 'co2', 'voc']:
+        for key in ['co2', 'voc', 'pm1', 'pm25', 'pm10']:
             data = list(self.data_history[key])
             if data:
                 avg = sum(data) / len(data)
@@ -885,21 +863,20 @@ class AirQualityDashboard:
         elif co2 <= 800:
             suggestions.append("✓ CO2 levels good - air quality is optimal")
         
-        # VOC (Volatile Organic Compounds) - Inverse scale (lower resistance = worse)
+        # VOC (Volatile Organic Compounds) - Direct scale (higher = worse)
         voc = self.current_values['voc']
-        # Note: VOC sensor gives resistance in Ohms - need to interpret correctly
-        # Lower resistance = higher VOC concentration = worse air quality
-        if voc > 300:  # Very high VOC (>1 mg/m³ equivalent)
-            alerts.append(f"🚨 CRITICAL VOC: {voc:.0f} Ω - RESPIRATORY IRRITATION, LONG-TERM HEALTH RISKS")
+        # Note: VOC index is directly proportional - higher value = worse air quality
+        if voc > 350:  # Very high VOC
+            alerts.append(f"🚨 CRITICAL VOC: {voc:.0f} - RESPIRATORY IRRITATION, LONG-TERM HEALTH RISKS")
             suggestions.append("💡 URGENT: Identify and remove VOC source, ventilate immediately!")
-        elif voc >250:  # High VOC (0.5-1 mg/m³ equivalent)
-            alerts.append(f"⚠️ HIGH VOC: {voc:.0f} Ω - Headache, nausea, dizziness possible")
+        elif voc > 250:  # High VOC
+            alerts.append(f"⚠️ HIGH VOC: {voc:.0f} - Headache, nausea, dizziness possible")
             suggestions.append("💡 Increase ventilation and identify source of VOCs")
-        elif voc >150:  # Moderate VOC (0.3-0.5 mg/m³ equivalent)
-            alerts.append(f"⚠️ ELEVATED VOC: {voc:.0f} Ω - Mild eye, nose, and throat irritation")
+        elif voc > 150:  # Moderate VOC
+            alerts.append(f"⚠️ ELEVATED VOC: {voc:.0f} - Mild eye, nose, and throat irritation")
             suggestions.append("💡 Consider opening windows for better air circulation")
-        elif voc >0:
-            suggestions.append("✓ VOC levels excellent - no irritants detected")
+        elif voc <= 150:
+            suggestions.append("✓ VOC levels good - no irritants detected")
         
         # PM1 (Particulate Matter ≤1 µm)
         pm1 = self.current_values['pm1']
@@ -1036,10 +1013,11 @@ class AirQualityDashboard:
             for i in range(len(self.data_history['timestamps'])):
                 reading = {
                     'timestamp': self.data_history['timestamps'][i].isoformat(),
-                    'pm25': self.data_history['pm25'][i],
-                    'pm10': self.data_history['pm10'][i],
                     'co2': self.data_history['co2'][i],
-                    'voc': self.data_history['voc'][i]
+                    'voc': self.data_history['voc'][i],
+                    'pm1': self.data_history['pm1'][i],
+                    'pm25': self.data_history['pm25'][i],
+                    'pm10': self.data_history['pm10'][i]
                 }
                 export_data['readings'].append(reading)
                 
