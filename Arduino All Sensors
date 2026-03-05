@@ -1,0 +1,307 @@
+/*
+ * Multi-Sensor Air Quality Monitor
+ * Outputs: pm1, pm25, pm10, co2, voc
+ * Format: pm1:12.345,pm25:15.678,pm10:20.123,co2:450,voc:85000
+ * Serial: 115200 baud
+ * 
+ * Health Thresholds based on standard guidelines:
+ * - CO2: Safe <800 ppm, Symptoms >1000 ppm
+ * - PM1: Safe <10 μg/m³, Symptoms >10 μg/m³
+ * - PM2.5: Safe <15 μg/m³, Symptoms >15 μg/m³
+ * - PM10: Safe <45 μg/m³, Symptoms >45 μg/m³
+ */
+
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include "Adafruit_BME680.h"
+#include <MHZ19.h>
+
+// ZH07 Pins
+#define RXD2 4
+#define TXD2 5
+
+// MH-Z19E Pins
+#define MHZ19_RX_PIN 16
+#define MHZ19_TX_PIN 17
+
+// I2C Pins (BME680)
+#define SDA_PIN 21
+#define SCL_PIN 22
+
+// Health Thresholds
+#define CO2_SAFE_MAX 800
+#define CO2_SYMPTOMS_START 1000
+#define CO2_SEVERE_START 2000
+#define CO2_CRITICAL 5000
+
+#define PM1_SAFE_MAX 10      // μg/m³
+#define PM1_SYMPTOMS_START 10
+#define PM1_MODERATE 25
+#define PM1_UNHEALTHY 50
+
+#define PM25_SAFE_MAX 15     // μg/m³
+#define PM25_SYMPTOMS_START 15
+#define PM25_MODERATE 35
+#define PM25_UNHEALTHY 75
+
+#define PM10_SAFE_MAX 45     // μg/m³
+#define PM10_SYMPTOMS_START 45
+#define PM10_MODERATE 100
+#define PM10_UNHEALTHY 250
+
+// UART instances
+HardwareSerial zhSerial(2);      // UART2 for ZH07
+HardwareSerial mhz19Serial(1);   // UART1 for MH-Z19E
+
+// Sensor objects
+Adafruit_BME680 bme;
+MHZ19 myMHZ19;
+
+// Sensor data
+struct SensorData {
+  float pm1_0;
+  float pm2_5;
+  float pm10;
+  int co2;
+  float voc;  // Gas resistance in Ohms
+} data;
+
+// Timing
+unsigned long lastOutputTime = 0;
+const unsigned long OUTPUT_INTERVAL = 2000;  // Output every 2 seconds
+
+// ==========================================
+// Parse ZH07 Data (32-byte packet format)
+// ==========================================
+bool parseZH07Packet() {
+  if (zhSerial.available() >= 32) {
+    uint8_t buffer[32];
+    
+    if (zhSerial.readBytes(buffer, 32) == 32) {
+      // Check for header bytes 0x42 0x4D
+      if (buffer[0] == 0x42 && buffer[1] == 0x4D) {
+        // Extract PM values from packet
+        data.pm1_0 = (float)((buffer[4] << 8) | buffer[5]);
+        data.pm2_5 = (float)((buffer[6] << 8) | buffer[7]);
+        data.pm10 = (float)((buffer[8] << 8) | buffer[9]);
+        
+        return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
+// ==========================================
+// Read MH-Z19E CO2
+// ==========================================
+void readCO2() {
+  data.co2 = myMHZ19.getCO2();
+  
+  // Validate reading
+  if (data.co2 < 0 || data.co2 > 5000) {
+    data.co2 = 0;  // Invalid reading
+  }
+}
+
+// ==========================================
+// Read BME680 VOC (Gas Resistance)
+// ==========================================
+void readVOC() {
+  if (bme.performReading()) {
+    data.voc = bme.gas_resistance;  // In Ohms
+  }
+}
+
+// ==========================================
+// Get Health Status
+// ==========================================
+String getCO2Status(int co2) {
+  if (co2 < CO2_SAFE_MAX) return "Safe";
+  if (co2 < CO2_SYMPTOMS_START) return "Acceptable";
+  if (co2 < CO2_SEVERE_START) return "Drowsiness risk";
+  if (co2 < CO2_CRITICAL) return "Headache, dizziness";
+  return "SEVERE - breathing difficulty";
+}
+
+String getPM1Status(float pm1) {
+  if (pm1 < PM1_SAFE_MAX) return "Safe";
+  if (pm1 < PM1_MODERATE) return "Mild throat irritation";
+  if (pm1 < PM1_UNHEALTHY) return "Coughing, breathing discomfort";
+  return "Lung irritation, asthma risk";
+}
+
+String getPM25Status(float pm25) {
+  if (pm25 < PM25_SAFE_MAX) return "Safe";
+  if (pm25 < PM25_MODERATE) return "Eye irritation, coughing";
+  if (pm25 < PM25_UNHEALTHY) return "Breathing difficulty";
+  return "Asthma attacks, lung inflammation";
+}
+
+String getPM10Status(float pm10) {
+  if (pm10 < PM10_SAFE_MAX) return "Safe";
+  if (pm10 < PM10_MODERATE) return "Sneezing, eye irritation";
+  if (pm10 < PM10_UNHEALTHY) return "Coughing, throat irritation";
+  return "Respiratory problems";
+}
+
+// ==========================================
+// Output Data in Required Format (3 decimals)
+// ==========================================
+void outputData() {
+  Serial.print("pm1:");
+  Serial.print(data.pm1_0, 3);  // 3 decimal places
+  Serial.print(",pm25:");
+  Serial.print(data.pm2_5, 3);  // 3 decimal places
+  Serial.print(",pm10:");
+  Serial.print(data.pm10, 3);   // 3 decimal places
+  Serial.print(",co2:");
+  Serial.print(data.co2);
+  Serial.print(",voc:");
+  Serial.println(data.voc, 0);  // No decimal for VOC
+}
+
+// ==========================================
+// Output Detailed Health Report (Optional)
+// ==========================================
+void outputHealthReport() {
+  Serial.println("\n========================================");
+  Serial.println("Air Quality Health Report");
+  Serial.println("========================================");
+  
+  // CO2
+  Serial.print("CO2: ");
+  Serial.print(data.co2);
+  Serial.print(" ppm - ");
+  Serial.println(getCO2Status(data.co2));
+  if (data.co2 >= CO2_SYMPTOMS_START) {
+    Serial.println("  ⚠ Symptoms possible - ventilate area");
+  }
+  
+  // PM1.0
+  Serial.print("PM1.0: ");
+  Serial.print(data.pm1_0, 3);
+  Serial.print(" μg/m³ - ");
+  Serial.println(getPM1Status(data.pm1_0));
+  if (data.pm1_0 >= PM1_SYMPTOMS_START) {
+    Serial.println("  ⚠ Health effects possible");
+  }
+  
+  // PM2.5
+  Serial.print("PM2.5: ");
+  Serial.print(data.pm2_5, 3);
+  Serial.print(" μg/m³ - ");
+  Serial.println(getPM25Status(data.pm2_5));
+  if (data.pm2_5 >= PM25_SYMPTOMS_START) {
+    Serial.println("  ⚠ Sensitive groups at risk");
+  }
+  
+  // PM10
+  Serial.print("PM10: ");
+  Serial.print(data.pm10, 3);
+  Serial.print(" μg/m³ - ");
+  Serial.println(getPM10Status(data.pm10));
+  if (data.pm10 >= PM10_SYMPTOMS_START) {
+    Serial.println("  ⚠ Respiratory irritation possible");
+  }
+  
+  // VOC
+  Serial.print("VOC: ");
+  Serial.print(data.voc, 0);
+  Serial.print(" Ω (");
+  Serial.print(data.voc / 1000.0, 1);
+  Serial.println(" kΩ)");
+  if (data.voc < 50000) {
+    Serial.println("  ⚠ Poor air quality - VOCs detected");
+  }
+  
+  Serial.println("========================================\n");
+}
+
+// ==========================================
+// SETUP
+// ==========================================
+void setup() {
+  // Initialize Serial
+  Serial.begin(115200);
+  delay(1000);
+  
+  Serial.println("ZH07 Dust Sensor Test");
+  
+  // Initialize ZH07 (PM sensor) - 32-byte packet format
+  zhSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  
+  // Initialize MH-Z19E (CO2 sensor)
+  mhz19Serial.begin(9600, SERIAL_8N1, MHZ19_RX_PIN, MHZ19_TX_PIN);
+  myMHZ19.begin(mhz19Serial);
+  myMHZ19.autoCalibration(true);  // Enable ABC
+  
+  // Initialize BME680 (VOC sensor)
+  Wire.begin(SDA_PIN, SCL_PIN);
+  if (!bme.begin(0x76)) {
+    if (!bme.begin(0x77)) {
+      // BME680 not found - continue anyway
+      data.voc = 0;
+    }
+  }
+  
+  // Configure BME680
+  bme.setTemperatureOversampling(BME680_OS_8X);
+  bme.setHumidityOversampling(BME680_OS_2X);
+  bme.setPressureOversampling(BME680_OS_4X);
+  bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
+  bme.setGasHeater(320, 150);
+  
+  // Initialize sensor data
+  data.pm1_0 = 0;
+  data.pm2_5 = 0;
+  data.pm10 = 0;
+  data.co2 = 0;
+  data.voc = 0;
+  
+  // Display health thresholds
+  Serial.println("\n╔════════════════════════════════════════╗");
+  Serial.println("║  Multi-Sensor Air Quality Monitor     ║");
+  Serial.println("╚════════════════════════════════════════╝");
+  Serial.println("\nHealth Thresholds:");
+  Serial.println("  CO2:   Safe <800 ppm, Symptoms >1000 ppm");
+  Serial.println("  PM1:   Safe <10 μg/m³, Symptoms >10 μg/m³");
+  Serial.println("  PM2.5: Safe <15 μg/m³, Symptoms >15 μg/m³");
+  Serial.println("  PM10:  Safe <45 μg/m³, Symptoms >45 μg/m³");
+  Serial.println("\nOutput Format: pm1:X.XXX,pm25:X.XXX,pm10:X.XXX,co2:XXX,voc:XXXXX\n");
+  
+  delay(2000);  // Sensor warm-up
+}
+
+// ==========================================
+// LOOP
+// ==========================================
+void loop() {
+  unsigned long currentTime = millis();
+  
+  // Continuously parse ZH07 data (32-byte packet)
+  parseZH07Packet();
+  
+  // Output data at interval
+  if (currentTime - lastOutputTime >= OUTPUT_INTERVAL) {
+    lastOutputTime = currentTime;
+    
+    // Read all sensors
+    readCO2();
+    readVOC();
+    
+    // Output in required format (3 decimals for PM values)
+    outputData();
+    
+    // Optional: Uncomment to show detailed health report every 10 readings
+    // static int readingCount = 0;
+    // readingCount++;
+    // if (readingCount >= 10) {
+    //   readingCount = 0;
+    //   outputHealthReport();
+    // }
+  }
+  
+  delay(10);
+}
