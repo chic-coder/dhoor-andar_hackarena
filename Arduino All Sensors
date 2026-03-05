@@ -245,11 +245,11 @@ void controlBuzzer()
 // ==========================================
 void outputData() 
 {
-  Serial.print(",co2:");
+  Serial.print("co2:");
   Serial.print(data.co2);
   Serial.print(",voc:");
   Serial.print(data.iaq, 1);   // IAQ value (0-500)
-  Serial.print("pm1:");
+  Serial.print(",pm1:");
   Serial.print(data.pm1_0, 3);
   Serial.print(",pm25:");
   Serial.print(data.pm2_5, 3);
