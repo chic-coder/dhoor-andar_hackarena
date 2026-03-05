@@ -22,22 +22,46 @@ Our proposed solution is an integrated air quality monitoring system comprising 
 
 ---
 
-## Rules to Remember
-
-- All development must happen **during** the hackathon only
-- Push code **regularly** — commit history is monitored
-- Use only open-source libraries with compatible licenses and **credit them**
-- Only **one submission** per team
-- All members must be present **both days**
-
----
-
 ## Attribution
 
-List any external libraries, APIs, or datasets used here.
+- MHZ19 - Jonathan Dempsey<br>
+https://github.com/WifWaf/MH-Z19
+- Adafruit BME680 Library<br>
+https://github.com/adafruit/Adafruit_BME680
+- Adafruit Unified Sensor<br>
+https://github.com/adafruit/Adafruit_Sensor
+- Adafruit BusIO<br>
+https://github.com/adafruit/Adafruit_BusIO
+- tkinter<br>
+https://docs.python.org/3/library/tkinter.html
+- tkinter.ttk<br>
+https://docs.python.org/3/library/tkinter.ttk.html
+- tkinter.messagebox<br>
+https://docs.python.org/3/library/tkinter.messagebox.html
+- tkinter.scrolledtext<br>
+https://docs.python.org/3/library/tkinter.scrolledtext.html
+- pyserial<br>
+https://github.com/pyserial/pyserial
+- serial.tools.list_ports<br>
+https://pyserial.readthedocs.io/en/latest/tools.html#module-serial.tools.list_ports
+- threading<br>
+https://docs.python.org/3/library/threading.html
+- time<br>
+https://docs.python.org/3/library/time.html
+- datetime<br>
+https://docs.python.org/3/library/datetime.html
+- json<br>
+https://docs.python.org/3/library/json.html
+- os<br>
+https://docs.python.org/3/library/os.html
+- collections<br>
+https://docs.python.org/3/library/collections.html
+- math<br>
+https://docs.python.org/3/library/math.html
+- mathplotlib<br>
+https://matplotlib.org/stable/index.html
 
 ---
 
 > *"The world is not enough — but it is such a perfect place to start."* — James Bond
 >
-> All the best to every team. Build something great. 🚀
